@@ -1,0 +1,26 @@
+/* Background */
+.main{ background-color:#F8FAFC;}
+
+/* Sidebar */
+section[data-testid="stSidebar"]{background:#111827;}
+
+/* Sidebar text */
+section[data-testid="stSidebar"] *{color:white;}
+
+/* KPI Cards */
+.metric-card{
+    background:white;
+    padding:20px;
+    border-radius:12px;
+    box-shadow:0px 3px 12px rgba(0,0,0,.08);
+}
+
+/* Titles */
+h1,h2,h3{color:#1F2937;}
+
+/* Footer */
+.footer{
+    text-align:center;
+    color:gray;
+    padding:10px;
+}

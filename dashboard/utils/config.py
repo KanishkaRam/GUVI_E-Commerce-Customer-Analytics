@@ -1,0 +1,7 @@
+APP_TITLE = "Intelligent E-Commerce Customer Analytics Platform"
+PAGE_ICON = "🛒"
+LAYOUT = "wide"
+INITIAL_SIDEBAR_STATE = "expanded"
+PRIMARY_COLOR = "#2563EB"
+BACKGROUND_COLOR = "#F8FAFC"
+SIDEBAR_COLOR = "#111827"

@@ -1,0 +1,4 @@
+Cluster,Total_Orders,Total_Spending,Average_Order_Value,Average_Basket_Size,Recency,Frequency,Monetary,Customer_Tenure,Days_Since_Last_Purchase,Average_Review_Rating
+0,1.0,203.83,203.83,1.16,287.95,1.0,203.83,0.0,287.95,4.09
+1,1.0,183.78,183.78,1.24,294.01,1.0,183.78,0.0,294.01,4.09
+2,2.11,676.68,419.41,1.42,269.26,2.11,676.68,86.22,269.26,4.09
