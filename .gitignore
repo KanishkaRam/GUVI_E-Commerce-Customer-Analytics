@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment files
+.env
+
+# Large ML artifacts
+artifacts/customer_similarity.pkl
+artifacts/shap_values_sample.pkl
+
+# Large datasets
+data/raw/
+data/processed/customer_analytics_dataset.csv
+data/processed/customer_analytics_cleaned.csv
+data/processed/customer_analytics_featured.csv
