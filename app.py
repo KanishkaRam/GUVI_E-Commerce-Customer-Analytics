@@ -23,6 +23,7 @@ from dashboard.pages import (
 # --------------------------------------------------
 st.set_page_config(
     page_title=APP_TITLE,
+    
     page_icon=PAGE_ICON,
     layout=LAYOUT,
     initial_sidebar_state=INITIAL_SIDEBAR_STATE
