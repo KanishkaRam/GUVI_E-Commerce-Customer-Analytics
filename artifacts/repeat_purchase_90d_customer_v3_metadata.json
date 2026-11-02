@@ -1,0 +1,62 @@
+{
+  "model": "Logistic Regression",
+  "target": "repeat_purchase_90d",
+  "horizon_days": 90,
+  "features": [
+    "total_orders",
+    "recency_days",
+    "tenure_days",
+    "orders_last_30d",
+    "orders_last_90d",
+    "orders_last_180d",
+    "orders_per_month"
+  ],
+  "train_last_cutoff": "2018-04-01",
+  "test_cutoff": "2018-07-01",
+  "cutoff_convention": "history < cutoff; target in [cutoff, cutoff + 90 days)",
+  "selected_threshold": 0.8528340819505112,
+  "target_fractions": [
+    0.01,
+    0.05,
+    0.1
+  ],
+  "metrics": {
+    "Test ROC-AUC": 0.6051014965823056,
+    "Test PR-AUC": 0.011768244229957047,
+    "Test positive rate": 0.0035172224673017537,
+    "Selected threshold (validation)": 0.8528340819505112,
+    "Precision@0.5": 0.006749891130788213,
+    "Recall@0.5": 0.3152542372881356,
+    "F1@0.5": 0.013216798124067362,
+    "Precision@selected": 0.030373831775700934,
+    "Recall@selected": 0.04406779661016949,
+    "F1@selected": 0.035961272475795295,
+    "Flagged@selected": 428.0
+  },
+  "test_ranking": [
+    {
+      "Top fraction": 0.01,
+      "K": 839,
+      "True repeat purchasers": 21,
+      "Precision@K": 0.025029797377830752,
+      "Recall@K": 0.0711864406779661,
+      "Lift@K": 7.116353204985758
+    },
+    {
+      "Top fraction": 0.05,
+      "K": 4194,
+      "True repeat purchasers": 47,
+      "Precision@K": 0.011206485455412495,
+      "Recall@K": 0.15932203389830507,
+      "Lift@K": 3.1861747613620754
+    },
+    {
+      "Top fraction": 0.1,
+      "K": 8388,
+      "True repeat purchasers": 69,
+      "Precision@K": 0.008226037195994278,
+      "Recall@K": 0.23389830508474577,
+      "Lift@K": 2.338787856744502
+    }
+  ]
+}

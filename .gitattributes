@@ -1,0 +1,8 @@
+data/processed/customer_analytics_featured.csv filter=lfs diff=lfs merge=lfs -text
+data/processed/customer_features.csv filter=lfs diff=lfs merge=lfs -text
+data/processed/customer_segments.csv filter=lfs diff=lfs merge=lfs -text
+artifacts/customer_product_matrix.pkl filter=lfs diff=lfs merge=lfs -text
+artifacts/shap_values_sample.pkl filter=lfs diff=lfs merge=lfs -text
+artifacts/shap_sample.npy filter=lfs diff=lfs merge=lfs -text
+data/raw/olist_order_payments_dataset.csv filter=lfs diff=lfs merge=lfs -text
+data/raw/olist_order_items_dataset.csv filter=lfs diff=lfs merge=lfs -text
