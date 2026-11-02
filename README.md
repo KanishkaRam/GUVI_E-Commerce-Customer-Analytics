@@ -35,7 +35,6 @@ An end-to-end customer analytics project combining data integration, exploratory
 | Product recommendation | Customer–product collaborative filtering with fallback recommendations |
 | Model interpretation | Feature importance and SHAP |
 
-**Interpretation notes:** The spending model estimates **historical spending**, not verified future customer lifetime value. Repeat-purchase model scores should not be described as calibrated probabilities without calibration testing. The Explainable AI page may display explanations for a legacy LightGBM model rather than the current repeat-purchase classifier; its labels should make that distinction clear.
 
 ## Technology stack
 
@@ -178,4 +177,5 @@ For a portfolio or academic demonstration, this application illustrates the full
 
 ## Author / submission
 
-Developed as a **GUVI AI/ML capstone project**. Add your preferred name, GitHub repository URL, live Streamlit URL, and dashboard screenshots before final submission.
+Developed as a **GUVI AI/ML capstone project** by KANISHKA THIYAGARAJAN
+Streamlit Application URL - https://guvi-ecommerce-customer-analytics.streamlit.app/
