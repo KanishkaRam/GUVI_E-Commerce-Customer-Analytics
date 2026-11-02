@@ -1,18 +1,45 @@
-# Python
+# Python cache and compiled files
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments and local configuration
 .venv/
 venv/
-
-# Environment files
+env/
 .env
+.env.*
+!.env.example
+.streamlit/secrets.toml
 
-# Large ML artifacts
-artifacts/customer_similarity.pkl
-artifacts/shap_values_sample.pkl
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
 
-# Large datasets
+# Jupyter temporary files
+.ipynb_checkpoints/
+
+# Local datasets (often too large for GitHub)
 data/raw/
-data/processed/customer_analytics_dataset.csv
-data/processed/customer_analytics_cleaned.csv
-data/processed/customer_analytics_featured.csv
+data/processed/
+
+# Trained models and generated artifacts
+artifacts/
+models/
+notebooks/catboost_info/
+catboost_info/
+
+# Logs and temporary outputs
+*.log
+logs/
+tmp/
+*.tmp
+
+# Optional generated report exports
+reports/*.pdf
+reports/*.html

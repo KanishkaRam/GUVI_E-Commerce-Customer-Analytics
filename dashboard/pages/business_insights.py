@@ -1,592 +1,156 @@
-import streamlit as st
+"""Business Insights dashboard using original payment and order-item grains.
+
+Place this file at dashboard/pages/business_insights.py.
+Requires the corrected dashboard/pages/executive_dashboard.py from Step 2.
+"""
 import pandas as pd
 import plotly.express as px
+import streamlit as st
 from dashboard.utils.data_loader import load_transactions
+from dashboard.pages.executive_dashboard import load_financial_sources
+
+
+def _bar(data, x, y, title, horizontal=False):
+    if data.empty:
+        st.info(f'No data available for {title}.')
+        return
+    fig = px.bar(data, x=x, y=y, orientation='h' if horizontal else 'v', title=title)
+    fig.update_layout(margin=dict(l=20, r=25, t=55, b=30))
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def show():
-    st.title("📊 Business Insights")
-    st.markdown(
-        """
-        Explore key business trends across sales, customers,
-        product categories, payments, delivery performance,
-        and customer reviews.
-        """
-    )
+    st.title('📊 Business Insights')
+    st.markdown('Explore sales, customers, categories, sellers, payments, delivery performance and reviews.')
 
-    # --------------------------------------------------
-    # LOAD TRANSACTION DATA
-    # --------------------------------------------------
-
-    df = load_transactions()
-    if df.empty:
-        st.warning("Transaction data is not available.")
+    try:
+        transactions = load_transactions().copy()
+        payments, items = load_financial_sources()
+    except (FileNotFoundError, ValueError) as exc:
+        st.error(f'Unable to load the business data: {exc}')
         return
-    st.success(f"Loaded {len(df):,} transaction records.")
 
-    # --------------------------------------------------
-    # BASIC DATA INFORMATION
-    # --------------------------------------------------
-    st.subheader("📋 Business Data Overview")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(
-            "Total Transactions",
-            f"{len(df):,}"
-        )
-    with col2:
-        st.metric(
-            "Total Customers",
-            f"{df['customer_unique_id'].nunique():,}"
-        )
-    with col3:
-        st.metric(
-            "Total Orders",
-            f"{df['order_id'].nunique():,}"
-        )
-    with col4:
-        st.metric(
-            "Total Revenue",
-            f"R$ {df['payment_value'].sum():,.2f}"
-        )
+    if transactions.empty:
+        st.warning('Transaction data is not available.')
+        return
+
+    transactions['order_purchase_timestamp'] = pd.to_datetime(
+        transactions['order_purchase_timestamp'], errors='coerce'
+    )
+    # The transaction table is joined at item/payment grain. Build one row per order.
+    orders = transactions[[
+        'order_id', 'customer_unique_id', 'customer_state', 'order_purchase_timestamp'
+    ]].drop_duplicates('order_id').copy()
+    orders = orders.dropna(subset=['order_id'])
+    order_ids = set(orders['order_id'])
+    payments = payments[payments['order_id'].isin(order_ids)].copy()
+    items = items[items['order_id'].isin(order_ids)].copy()
+
+    total_revenue = payments['payment_value'].sum()
+    st.subheader('📋 Business Data Overview')
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric('Integrated Rows', f'{len(transactions):,}')
+    c2.metric('Total Customers', f"{orders['customer_unique_id'].nunique():,}")
+    c3.metric('Total Orders', f"{orders['order_id'].nunique():,}")
+    c4.metric('Total Revenue', f'R$ {total_revenue:,.2f}')
+    st.caption('Revenue uses original payment records (including freight). Integrated rows are not unique transactions.')
     st.divider()
 
-    # --------------------------------------------------
-    # SALES TRENDS
-    # --------------------------------------------------
-
-    st.subheader("📈 Sales Trends")
-
-    sales_df = df.copy()
-
-    sales_df["order_purchase_timestamp"] = pd.to_datetime(
-        sales_df["order_purchase_timestamp"],
-        errors="coerce"
+    st.subheader('📈 Sales Trends')
+    dated_orders = orders.dropna(subset=['order_purchase_timestamp']).copy()
+    dated_orders['Month'] = dated_orders['order_purchase_timestamp'].dt.to_period('M').astype(str)
+    monthly_orders = dated_orders.groupby('Month', as_index=False)['order_id'].nunique()
+    monthly_orders = monthly_orders.rename(columns={'order_id': 'Orders'})
+    monthly_payments = payments.merge(
+        dated_orders[['order_id', 'Month']], on='order_id', how='inner', validate='many_to_one'
     )
-
-    sales_df = sales_df.dropna(
-        subset=["order_purchase_timestamp"]
-    )
-
-    # --------------------------------------------------
-    # MONTHLY REVENUE
-    # --------------------------------------------------
-
-    monthly_revenue = (
-        sales_df
-        .groupby(
-            sales_df["order_purchase_timestamp"].dt.to_period("M")
-        )["payment_value"]
-        .sum()
-        .reset_index()
-    )
-
-    monthly_revenue["Month"] = (
-        monthly_revenue["order_purchase_timestamp"]
-        .astype(str)
-    )
-
-    monthly_revenue = monthly_revenue.rename(
-        columns={
-            "payment_value": "Revenue"
-        }
-    )
-
-    revenue_fig = px.line(
-        monthly_revenue,
-        x="Month",
-        y="Revenue",
-        markers=True,
-        title="Monthly Revenue"
-    )
-
-    revenue_fig.update_layout(
-        xaxis_title="Month",
-        yaxis_title="Revenue (R$)",
-        hovermode="x unified"
-    )
-
-    st.plotly_chart(
-        revenue_fig,
-        use_container_width=True
-    )
-
-    # --------------------------------------------------
-    # MONTHLY ORDERS
-    # --------------------------------------------------
-
-    monthly_orders = (
-        sales_df
-        .groupby(
-            sales_df["order_purchase_timestamp"].dt.to_period("M")
-        )["order_id"]
-        .nunique()
-        .reset_index()
-    )
-
-    monthly_orders["Month"] = (
-        monthly_orders["order_purchase_timestamp"]
-        .astype(str)
-    )
-
-    monthly_orders = monthly_orders.rename(
-        columns={
-            "order_id": "Orders"
-        }
-    )
-
-    orders_fig = px.bar(
-        monthly_orders,
-        x="Month",
-        y="Orders",
-        title="Monthly Orders"
-    )
-
-    orders_fig.update_layout(
-        xaxis_title="Month",
-        yaxis_title="Number of Orders",
-        hovermode="x unified"
-    )
-
-    st.plotly_chart(
-        orders_fig,
-        use_container_width=True
-    )
-
+    monthly_revenue = monthly_payments.groupby('Month', as_index=False)['payment_value'].sum()
+    monthly_revenue = monthly_revenue.rename(columns={'payment_value': 'Revenue'})
+    if not monthly_revenue.empty:
+        fig = px.line(monthly_revenue, x='Month', y='Revenue', markers=True, title='Monthly Revenue (R$)')
+        st.plotly_chart(fig, use_container_width=True)
+    _bar(monthly_orders, 'Month', 'Orders', 'Monthly Orders')
     st.divider()
 
-    # --------------------------------------------------
-    # CATEGORY PERFORMANCE
-    # --------------------------------------------------
-
-    st.subheader("🏷️ Category Performance")
-
-    category_df = df.copy()
-
-    # Remove rows without category information
-    category_df = category_df.dropna(
-        subset=["product_category_name_english"]
-    )
-
-    # Aggregate revenue by category
-    category_revenue = (
-        category_df
-        .groupby("product_category_name_english")["payment_value"]
-        .sum()
-        .sort_values(ascending=False)
-        .head(10)
-        .reset_index()
-    )
-
-    category_revenue = category_revenue.rename(
-        columns={
-            "product_category_name_english": "Category",
-            "payment_value": "Revenue"
-        }
-    )
-
-    # Create horizontal bar chart
-    category_fig = px.bar(
-        category_revenue.sort_values("Revenue"),
-        x="Revenue",
-        y="Category",
-        orientation="h",
-        title="Top 10 Product Categories by Revenue",
-        text="Revenue"
-    )
-
-    category_fig.update_traces(
-        texttemplate="R$ %{text:,.0f}",
-        textposition="outside"
-    )
-
-    category_fig.update_layout(
-        xaxis_title="Revenue (R$)",
-        yaxis_title="Product Category",
-        showlegend=False
-    )
-
-    st.plotly_chart(
-        category_fig,
-        use_container_width=True
-    )
-
-    st.markdown("### 📋 Category Revenue Summary")
-    category_display = category_revenue.copy()
-    category_display["Revenue"] = (
-        category_display["Revenue"]
-        .map(lambda x: f"R$ {x:,.2f}")
-    )
-    st.dataframe(
-        category_display,
-        use_container_width=True,
-        hide_index=True
-    )
-
+    # Item-level prices are not payment revenue; do not allocate full payment amounts to each item.
+    st.subheader('🏷️ Category Performance')
+    product_categories = transactions[[
+        'product_id', 'product_category_name_english'
+    ]].dropna(subset=['product_id']).drop_duplicates('product_id')
+    category_items = items.merge(product_categories, on='product_id', how='left', validate='many_to_one')
+    category_sales = (category_items.dropna(subset=['product_category_name_english'])
+        .groupby('product_category_name_english', as_index=False)['price'].sum()
+        .sort_values('price', ascending=False).head(10)
+        .rename(columns={'product_category_name_english': 'Category', 'price': 'Item Sales'}))
+    _bar(category_sales.sort_values('Item Sales'), 'Item Sales', 'Category',
+         'Top 10 Product Categories by Item Sales (R$)', horizontal=True)
+    st.dataframe(category_sales, hide_index=True, use_container_width=True)
     st.divider()
-    # --------------------------------------------------
-    # SELLER PERFORMANCE
-    # --------------------------------------------------
 
-    st.subheader("🏪 Seller Performance")
-
-    seller_df = df.copy()
-
-    # Remove rows without seller information
-    seller_df = seller_df.dropna(
-        subset=["seller_id"]
-    )
-
-    # Aggregate seller revenue
-    seller_revenue = (
-        seller_df
-        .groupby("seller_id")["payment_value"]
-        .sum()
-        .sort_values(ascending=False)
-        .head(10)
-        .reset_index()
-    )
-
-    seller_revenue = seller_revenue.rename(
-        columns={
-            "seller_id": "Seller ID",
-            "payment_value": "Revenue"
-        }
-    )
-
-    # --------------------------------------------------
-    # SELLER REVENUE CHART
-    # --------------------------------------------------
-
-    seller_fig = px.bar(
-        seller_revenue.sort_values("Revenue"),
-        x="Revenue",
-        y="Seller ID",
-        orientation="h",
-        title="Top 10 Sellers by Revenue",
-        text="Revenue"
-    )
-
-    seller_fig.update_traces(
-        texttemplate="R$ %{text:,.0f}",
-        textposition="outside"
-    )
-
-    seller_fig.update_layout(
-        xaxis_title="Revenue (R$)",
-        yaxis_title="Seller ID",
-        showlegend=False
-    )
-
-    st.plotly_chart(
-        seller_fig,
-        use_container_width=True
-    )
-
-    # --------------------------------------------------
-    # SELLER SUMMARY TABLE
-    # --------------------------------------------------
-
-    st.markdown("### 📋 Seller Revenue Summary")
-
-    seller_display = seller_revenue.copy()
-
-    seller_display["Revenue"] = (
-        seller_display["Revenue"]
-        .map(lambda x: f"R$ {x:,.2f}")
-    )
-
-    st.dataframe(
-        seller_display,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # --------------------------------------------------
-    # SELLER PERFORMANCE
-    # --------------------------------------------------
-
-    st.subheader("🏪 Seller Performance")
-
-    seller_df = df.copy()
-
-    seller_df = seller_df.dropna(
-        subset=["seller_id"]
-    )
-
-    seller_performance = (
-        seller_df
-        .groupby("seller_id")
-        .agg(
-            Revenue=("payment_value", "sum"),
-            Orders=("order_id", "nunique"),
-            Products_Sold=("product_id", "nunique")
-        )
-        .sort_values(
-            "Revenue",
-            ascending=False
-        )
-        .head(10)
-        .reset_index()
-    )
-
-    seller_performance = seller_performance.rename(
-        columns={
-            "seller_id": "Seller ID"
-        }
-    )
-
-    seller_fig = px.bar(
-    seller_performance.sort_values("Revenue"),
-    x="Revenue",
-    y="Seller ID",
-    orientation="h",
-    title="Top 10 Sellers by Revenue",
-    text="Revenue",
-    hover_data=[
-        "Orders",
-        "Products_Sold"
-    ]
-)
-
-    seller_fig.update_traces(
-        texttemplate="R$ %{text:,.0f}",
-        textposition="outside"
-    )
-
-    seller_fig.update_layout(
-        xaxis_title="Revenue (R$)",
-        yaxis_title="Seller ID",
-        showlegend=False
-    )
-
-    st.plotly_chart(
-        seller_fig,
-        use_container_width=True
-    )
-
-    seller_display = seller_performance.copy()
-
-    seller_display["Revenue"] = (
-        seller_display["Revenue"]
-        .map(lambda x: f"R$ {x:,.2f}")
-    )
-
-    st.markdown("### 📋 Seller Performance Summary")
-
-    st.dataframe(
-        seller_display,
-        use_container_width=True,
-        hide_index=True
-    )
-
+    st.subheader('🏪 Seller Performance')
+    seller_sales = (items.groupby('seller_id', as_index=False)
+        .agg(Item_Sales=('price', 'sum'), Orders=('order_id', 'nunique'),
+             Products_Sold=('product_id', 'nunique'))
+        .sort_values('Item_Sales', ascending=False).head(10)
+        .rename(columns={'seller_id': 'Seller ID'}))
+    _bar(seller_sales.sort_values('Item_Sales'), 'Item_Sales', 'Seller ID',
+         'Top 10 Sellers by Item Sales (R$)', horizontal=True)
+    st.dataframe(seller_sales, hide_index=True, use_container_width=True)
     st.divider()
-    # --------------------------------------------------
-    # GEOGRAPHIC SALES DISTRIBUTION
-    # --------------------------------------------------
 
-    st.subheader("🌎 Geographic Sales Distribution")
-
-    geo_df = df.copy()
-
-    geo_df = geo_df.dropna(
-        subset=["customer_state"]
+    st.subheader('🌎 Geographic Sales Distribution')
+    state_orders = orders.dropna(subset=['customer_state'])
+    state_payments = payments.merge(
+        state_orders[['order_id', 'customer_state']], on='order_id', how='inner', validate='many_to_one'
     )
-
-    state_sales = (
-        geo_df
-        .groupby("customer_state")
-        .agg(
-            Revenue=("payment_value", "sum"),
-            Orders=("order_id", "nunique"),
-            Customers=("customer_unique_id", "nunique")
-        )
-        .sort_values(
-            "Revenue",
-            ascending=False
-        )
-        .reset_index()
-    )
-
-    state_sales = state_sales.rename(
-        columns={
-            "customer_state": "State"
-        }
-    )
-
-    # --------------------------------------------------
-    # STATE REVENUE CHART
-    # --------------------------------------------------
-
-    geo_fig = px.bar(
-        state_sales.sort_values("Revenue"),
-        x="Revenue",
-        y="State",
-        orientation="h",
-        title="Revenue by Customer State",
-        text="Revenue",
-        hover_data=[
-            "Orders",
-            "Customers"
-        ]
-    )
-
-    geo_fig.update_traces(
-        texttemplate="R$ %{text:,.0f}",
-        textposition="outside"
-    )
-
-    geo_fig.update_layout(
-        xaxis_title="Revenue (R$)",
-        yaxis_title="Customer State",
-        showlegend=False,
-        height=700
-    )
-
-    st.plotly_chart(
-        geo_fig,
-        use_container_width=True
-    )
-
-    st.markdown("### 📋 Geographic Sales Summary")
-
-    geo_display = state_sales.copy()
-
-    geo_display["Revenue"] = (
-        geo_display["Revenue"]
-        .map(lambda x: f"R$ {x:,.2f}")
-    )
-
-    st.dataframe(
-        geo_display,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "States with Sales",
-            f"{state_sales['State'].nunique():,}"
-        )
-
-    with col2:
-        st.metric(
-            "Top State",
-            state_sales.iloc[0]["State"]
-        )
-
-    with col3:
-        st.metric(
-            "Top State Revenue",
-            f"R$ {state_sales.iloc[0]['Revenue']:,.2f}"
-        )
-
+    state_revenue = state_payments.groupby('customer_state')['payment_value'].sum().rename('Revenue')
+    state_counts = state_orders.groupby('customer_state').agg(
+        Orders=('order_id', 'nunique'), Customers=('customer_unique_id', 'nunique'))
+    state_sales = (state_counts.join(state_revenue, how='left').fillna({'Revenue': 0})
+        .reset_index().rename(columns={'customer_state': 'State'})
+        .sort_values('Revenue', ascending=False))
+    _bar(state_sales.sort_values('Revenue'), 'Revenue', 'State',
+         'Recorded Payment Revenue by Customer State (R$)', horizontal=True)
+    st.dataframe(state_sales, hide_index=True, use_container_width=True)
+    if not state_sales.empty:
+        c1, c2, c3 = st.columns(3)
+        c1.metric('States with Orders', f'{len(state_sales):,}')
+        c2.metric('Top State', state_sales.iloc[0]['State'])
+        c3.metric('Top State Revenue', f"R$ {state_sales.iloc[0]['Revenue']:,.2f}")
     st.divider()
-    # --------------------------------------------------
-    # REVIEW SCORE ANALYSIS
-    # --------------------------------------------------
 
-    st.subheader("⭐ Review Score Analysis")
+    st.subheader('💳 Payment Method Distribution')
+    payment_summary = payments.groupby('payment_type', as_index=False)['payment_value'].sum()
+    if not payment_summary.empty:
+        fig = px.pie(payment_summary, names='payment_type', values='payment_value',
+                     hole=0.45, title='Recorded Payment Value by Method')
+        st.plotly_chart(fig, use_container_width=True)
+    st.divider()
 
-    review_df = df.copy()
-
-    review_df = review_df.dropna(
-        subset=["review_score"]
-    )
-
-    # --------------------------------------------------
-    # REVIEW KPIs
-    # --------------------------------------------------
-
-    average_review = review_df["review_score"].mean()
-
-    positive_reviews = (
-        review_df["review_score"] >= 4
-    ).mean() * 100
-
-    negative_reviews = (
-        review_df["review_score"] <= 2
-    ).mean() * 100
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "Average Review Score",
-            f"{average_review:.2f} / 5"
-        )
-
-    with col2:
-        st.metric(
-            "Positive Reviews",
-            f"{positive_reviews:.1f}%"
-        )
-
-    with col3:
-        st.metric(
-            "Negative Reviews",
-            f"{negative_reviews:.1f}%"
-        )
-
-    # --------------------------------------------------
-    # REVIEW DISTRIBUTION
-    # --------------------------------------------------
-
-    review_distribution = (
-        review_df["review_score"]
-        .value_counts()
-        .sort_index()
-        .reset_index()
-    )
-
-    review_distribution.columns = [
-        "Review Score",
-        "Reviews"
-    ]
-
-    review_fig = px.bar(
-        review_distribution,
-        x="Review Score",
-        y="Reviews",
-        title="Review Score Distribution",
-        text="Reviews"
-    )
-
-    review_fig.update_traces(
-        textposition="outside"
-    )
-
-    review_fig.update_layout(
-        xaxis_title="Review Score",
-        yaxis_title="Number of Reviews",
-        height=500
-    )
-
-    st.plotly_chart(
-        review_fig,
-        use_container_width=True
-    )
-
-    # --------------------------------------------------
-    # REVIEW INTERPRETATION
-    # --------------------------------------------------
-
-    if average_review >= 4:
-        st.success(
-            "Overall customer satisfaction is strong, "
-            "with an average review score of 4 or above."
-        )
-
-    elif average_review >= 3:
-        st.warning(
-            "Customer satisfaction is moderate. "
-            "There may be opportunities to improve the customer experience."
-        )
-
+    st.subheader('⭐ Review Score Analysis')
+    # Original review IDs allow reviews to be counted once despite item/payment joins.
+    if 'review_id' in transactions.columns:
+        reviews = transactions[['review_id', 'review_score']].dropna(subset=['review_id'])
+        reviews = reviews.drop_duplicates('review_id')
     else:
-        st.error(
-            "Customer satisfaction is relatively low. "
-            "Further investigation into product and delivery issues is recommended."
-        )
+        st.warning('review_id not available; using one score per order as an approximation.')
+        reviews = transactions[['order_id', 'review_score']].drop_duplicates('order_id')
+    reviews = reviews.dropna(subset=['review_score'])
+    if reviews.empty:
+        st.info('No review scores are available.')
+        return
+    average = reviews['review_score'].mean()
+    positive = reviews['review_score'].ge(4).mean() * 100
+    negative = reviews['review_score'].le(2).mean() * 100
+    c1, c2, c3 = st.columns(3)
+    c1.metric('Average Review Score', f'{average:.2f} / 5')
+    c2.metric('Positive Reviews', f'{positive:.1f}%')
+    c3.metric('Negative Reviews', f'{negative:.1f}%')
+    distribution = reviews['review_score'].value_counts().sort_index().rename_axis('Review Score').reset_index(name='Reviews')
+    _bar(distribution, 'Review Score', 'Reviews', 'Review Score Distribution')
+    if average >= 4:
+        st.success('Average review score is 4 or above.')
+    elif average >= 3:
+        st.warning('Average review score is between 3 and 4.')
+    else:
+        st.error('Average review score is below 3.')

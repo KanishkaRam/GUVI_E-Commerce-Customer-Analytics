@@ -25,11 +25,6 @@ def load_transactions():
             df[column] = pd.to_datetime(df[column], errors="coerce")
     return df
 
-# Customer Features
-@st.cache_data(show_spinner=False)
-def load_customer_features():
-    return pd.read_csv(DATA_DIR / "customer_features.csv")
-
 # Cluster Profile
 @st.cache_data(show_spinner=False)
 def load_cluster_profile():

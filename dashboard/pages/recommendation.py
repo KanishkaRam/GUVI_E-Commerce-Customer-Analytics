@@ -1,172 +1,56 @@
+"""Streamlit recommendation dashboard."""
 import pandas as pd
 import streamlit as st
 
-from dashboard.utils.data_loader import (
-    load_customer_features,
-    load_transactions
-)
-
-from dashboard.utils.model_loader import (
-    load_customer_similarity,
-    load_customer_product_matrix
-)
-
-from dashboard.utils.recommendations import (
-    recommend_products
-)
+from dashboard.utils.data_loader import load_customer_features, load_transactions
+from dashboard.utils.model_loader import load_customer_product_matrix
+from dashboard.utils.recommendations import recommend_products
 
 
 def show():
-
-    st.title("🛍️ Recommendation Engine")
-
-    st.markdown(
-        """
-        Discover personalized product recommendations based on
-        customer similarity and collaborative filtering.
-        """
-    )
-
-    # --------------------------------------------------
-    # LOAD DATA
-    # --------------------------------------------------
-
+    st.title('🛍️ Recommendation Engine')
+    st.markdown('Discover personalized product recommendations based on customer similarity and collaborative filtering.')
     customer_df = load_customer_features()
     transaction_df = load_transactions()
-
-    customer_similarity_df = load_customer_similarity()
-    customer_product_matrix = load_customer_product_matrix()
-
-    # --------------------------------------------------
-    # CUSTOMER VALIDATION
-    # --------------------------------------------------
-
-    if customer_df.empty:
-
-        st.warning(
-            "Customer data is not available."
-        )
-
+    matrix = load_customer_product_matrix()
+    if customer_df is None or customer_df.empty:
+        st.warning('Customer data is not available.')
+        return
+    if matrix is None or matrix.empty:
+        st.warning('Customer-product interaction matrix is not available.')
+        return
+    ids = sorted(matrix.index.dropna().tolist())
+    if not ids:
+        st.warning('No customers are available in the recommendation dataset.')
         return
 
-    # --------------------------------------------------
-    # CUSTOMER SELECTOR
-    # --------------------------------------------------
-
-    st.subheader("🔎 Select Customer")
-    # --------------------------------------------------
-    # CUSTOMERS AVAILABLE FOR RECOMMENDATIONS
-    # --------------------------------------------------
-
-    recommendation_customer_ids = (
-        customer_product_matrix.index
-        .dropna()
-        .tolist()
-    )
-
-    recommendation_customer_ids = sorted(
-        recommendation_customer_ids
-    )
-
-    if not recommendation_customer_ids:
-
-        st.warning(
-            "No customers are available in the "
-            "recommendation dataset."
-        )
-
-        return
-
-    st.caption(
-        f"{len(recommendation_customer_ids):,} customers "
-        "are available for personalized recommendations."
-    )
-
-    selected_customer = st.selectbox(
-        "Customer ID",
-        recommendation_customer_ids
-    )
-    st.divider()
-
-    # --------------------------------------------------
-    # GENERATE RECOMMENDATIONS
-    # --------------------------------------------------
-
-    recommendations = recommend_products(
-        customer_id=selected_customer,
-        customer_similarity_df=customer_similarity_df,
-        customer_product_matrix=customer_product_matrix,
-        top_n=5
-    )
-
-    # --------------------------------------------------
-    # RECOMMENDED PRODUCTS
-    # --------------------------------------------------
-
-    st.subheader("🎯 Top 5 Recommended Products")
-
-    if not recommendations:
-
-        st.info(
-            """
-            No personalized recommendations are available
-            for this customer.
-            """
-        )
-
-    else:
-
-        recommendation_df = pd.DataFrame(
-            {
-                "Rank": range(
-                    1,
-                    len(recommendations) + 1
-                ),
-                "Product ID": recommendations
-            }
-        )
-
-        st.dataframe(
-            recommendation_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # --------------------------------------------------
-    # PREVIOUSLY PURCHASED PRODUCTS
-    # --------------------------------------------------
+    st.subheader('🔎 Select Customer')
+    st.caption(f'{len(ids):,} customers are available for recommendations.')
+    selected = st.selectbox('Customer ID', ids)
+    use_fallback = st.checkbox('Show popular products if personalized recommendations are unavailable', value=True)
+    result = recommend_products(selected, matrix, top_n=5, return_scores=True, fallback=use_fallback)
 
     st.divider()
-
-    st.subheader(
-        "🛒 Previously Purchased Products"
-    )
-
-    purchased_products = (
-        customer_product_matrix
-        .loc[selected_customer]
-    )
-
-    purchased_products = purchased_products[
-        purchased_products > 0
-    ].index.tolist()
-
-    if not purchased_products:
-
-        st.info(
-            "No previously purchased products found."
-        )
-
+    st.subheader('🎯 Top Recommended Products')
+    if result.empty:
+        st.info('No recommendations are available for this customer.')
     else:
+        # Category metadata is descriptive, not used to compute the collaborative scores.
+        if transaction_df is not None and not transaction_df.empty and {'product_id', 'product_category_name_english'}.issubset(transaction_df.columns):
+            lookup = (transaction_df[['product_id', 'product_category_name_english']]
+                      .dropna(subset=['product_id']).drop_duplicates(subset=['product_id']))
+            lookup = lookup.rename(columns={'product_id': 'Product ID', 'product_category_name_english': 'Category'})
+            result = result.merge(lookup, on='Product ID', how='left', validate='many_to_one')
+            result['Category'] = result['Category'].fillna('Unknown')
+        result.insert(0, 'Rank', range(1, len(result) + 1))
+        st.dataframe(result, width='stretch', hide_index=True)
+        st.caption('Scores are relative similarity-weighted affinities, not purchase probabilities. Popular-product fallback is not personalized.')
 
-        purchased_df = pd.DataFrame(
-            {
-                "Product ID": purchased_products
-            }
-        )
-
-        st.dataframe(
-            purchased_df,
-            use_container_width=True,
-            hide_index=True
-        )
+    st.divider()
+    st.subheader('🛒 Previously Purchased Products')
+    purchased = matrix.loc[selected]
+    purchased_ids = purchased[purchased > 0].index.tolist()
+    if not purchased_ids:
+        st.info('No previously purchased products found.')
+    else:
+        st.dataframe(pd.DataFrame({'Product ID': purchased_ids}), width='stretch', hide_index=True)

@@ -1,123 +1,55 @@
+"""Customer-based collaborative filtering with optional popularity fallback."""
+import numpy as np
 import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
 
 
-def recommend_products(
-    customer_id,
-    customer_similarity_df,
-    customer_product_matrix,
-    top_n=5,
-    similar_customer_count=20
-):
+def recommend_products(customer_id, customer_product_matrix, top_n=5,
+                       similar_customer_count=20, return_scores=False,
+                       fallback=False):
+    """Recommend unseen items. Scores are relative affinity, not probabilities.
+
+    By default preserves the original list-of-product-IDs return contract.
+    Set return_scores=True to obtain a DataFrame with ranking details.
     """
-    Generate product recommendations using
-    customer-based collaborative filtering.
-    """
+    matrix = customer_product_matrix
+    columns = ['Product ID', 'Recommendation Score', 'Recommendation Method']
+    empty = pd.DataFrame(columns=columns)
+    if matrix is None or matrix.empty or top_n <= 0:
+        return empty if return_scores else []
+    if not matrix.index.is_unique or not matrix.columns.is_unique:
+        raise ValueError('Customer and product IDs must be unique in the interaction matrix.')
+    if customer_id not in matrix.index and not fallback:
+        return empty if return_scores else []
 
-    # --------------------------------------------------
-    # Validate customer
-    # --------------------------------------------------
+    values = matrix.to_numpy(dtype=np.float64, copy=False)
+    if not np.isfinite(values).all() or (values < 0).any():
+        raise ValueError('Interaction matrix must contain finite nonnegative values.')
+    purchased = np.zeros(values.shape[1], dtype=bool)
+    scores = np.zeros(values.shape[1], dtype=float)
+    method = 'Collaborative filtering'
 
-    if customer_id not in customer_similarity_df.index:
-        return []
+    if customer_id in matrix.index:
+        pos = matrix.index.get_loc(customer_id)
+        purchased = values[pos] > 0
+        sims = cosine_similarity(values[pos:pos + 1], values).ravel()
+        sims[pos] = 0.0
+        neighbors = np.flatnonzero(sims > 0)
+        neighbors = sorted(neighbors, key=lambda i: (-sims[i], i))[:max(0, similar_customer_count)]
+        if neighbors:
+            scores = sims[neighbors] @ values[neighbors]
+            scores[purchased] = 0.0
 
-    if customer_id not in customer_product_matrix.index:
-        return []
+    if not np.any(scores > 0) and fallback:
+        scores = (values > 0).sum(axis=0).astype(float)
+        scores[purchased] = 0.0
+        method = 'Popular products (fallback)'
 
-    # --------------------------------------------------
-    # Get customer similarity scores
-    # --------------------------------------------------
-
-    similarity_scores = (
-        customer_similarity_df
-        .loc[customer_id]
-        .drop(customer_id, errors="ignore")
-        .sort_values(ascending=False)
-    )
-
-    # Keep only customers with non-zero similarity
-    similarity_scores = similarity_scores[
-        similarity_scores > 0
-    ]
-
-    # Select top similar customers
-    similar_customers = similarity_scores.head(
-        similar_customer_count
-    )
-
-    # --------------------------------------------------
-    # Get products already purchased
-    # --------------------------------------------------
-
-    customer_products = (
-        customer_product_matrix.loc[customer_id]
-    )
-
-    purchased_products = set(
-        customer_products[
-            customer_products > 0
-        ].index
-    )
-
-    # --------------------------------------------------
-    # No similar customers
-    # --------------------------------------------------
-
-    if similar_customers.empty:
-        return []
-
-    # --------------------------------------------------
-    # Calculate recommendation scores
-    # --------------------------------------------------
-
-    recommendation_scores = {}
-
-    for similar_customer_id, similarity_score in (
-        similar_customers.items()
-    ):
-
-        similar_customer_products = (
-            customer_product_matrix
-            .loc[similar_customer_id]
-        )
-
-        similar_products = (
-            similar_customer_products[
-                similar_customer_products > 0
-            ]
-        )
-
-        for product_id, interaction in (
-            similar_products.items()
-        ):
-
-            # Don't recommend products already purchased
-            if product_id in purchased_products:
-                continue
-
-            recommendation_scores[product_id] = (
-                recommendation_scores.get(
-                    product_id,
-                    0
-                )
-                + similarity_score * interaction
-            )
-
-    # --------------------------------------------------
-    # Rank products
-    # --------------------------------------------------
-
-    recommendations = sorted(
-        recommendation_scores.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )
-
-    # --------------------------------------------------
-    # Return product IDs
-    # --------------------------------------------------
-
-    return [
-        product_id
-        for product_id, score
-        in recommendations[:top_n]
-    ]
+    candidates = np.flatnonzero(scores > 0)
+    ranked = sorted(candidates, key=lambda i: (-scores[i], str(matrix.columns[i])))[:top_n]
+    result = pd.DataFrame({
+        'Product ID': matrix.columns[ranked].tolist(),
+        'Recommendation Score': scores[ranked].tolist(),
+        'Recommendation Method': [method] * len(ranked),
+    })
+    return result if return_scores else result['Product ID'].tolist()

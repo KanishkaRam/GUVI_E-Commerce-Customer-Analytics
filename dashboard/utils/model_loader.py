@@ -24,9 +24,6 @@ def load_clv_model():
     model_path = (ARTIFACT_DIR/ "catboost_clv_model.pkl")
     return joblib.load(model_path)
 
-@st.cache_resource
-def load_customer_similarity():
-    return joblib.load(ARTIFACT_DIR / "customer_similarity.pkl")
 
 @st.cache_resource
 def load_customer_product_matrix():

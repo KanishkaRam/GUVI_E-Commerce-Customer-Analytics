@@ -1,346 +1,110 @@
+from pathlib import Path
+import pandas as pd
 import streamlit as st
 from dashboard.utils.data_loader import load_transactions
 from dashboard.components.kpi_cards import metric_card
-from dashboard.utils.charts import (
-    line_chart,
-    bar_chart,
-    pie_chart
-)
+from dashboard.utils.charts import line_chart, bar_chart, pie_chart
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+RAW_DIR = BASE_DIR / 'data' / 'raw'
+
+@st.cache_data(show_spinner=False)
+def load_financial_sources():
+    payments = pd.read_csv(RAW_DIR / 'olist_order_payments_dataset.csv')
+    items = pd.read_csv(RAW_DIR / 'olist_order_items_dataset.csv')
+    # The source keys should identify individual payments and line items.
+    if payments.duplicated(['order_id', 'payment_sequential']).any():
+        raise ValueError('Duplicate payment keys in raw payment dataset')
+    if items.duplicated(['order_id', 'order_item_id']).any():
+        raise ValueError('Duplicate item keys in raw order item dataset')
+    return payments, items
 
 
 def show():
-    # PAGE HEADER
-    st.title("📊 Executive Dashboard")
-    st.markdown(
-        """
-        Monitor overall e-commerce performance through
-        revenue, customers, orders, product categories,
-        sellers, payments and customer reviews.
-        """
-    )
+    st.title('📊 Executive Dashboard')
+    st.markdown('Monitor revenue, customers, orders, categories, sellers, payments and reviews.')
     st.divider()
 
-    # LOAD DATA
     df = load_transactions()
+    payments, items = load_financial_sources()
+    df = df.copy()
+    df['order_purchase_timestamp'] = pd.to_datetime(df['order_purchase_timestamp'], errors='coerce')
 
-    # SIDEBAR FILTERS
-    st.sidebar.header("🎛️ Dashboard Filters")
+    st.sidebar.header('🎛️ Dashboard Filters')
+    years = sorted(df['order_purchase_timestamp'].dt.year.dropna().astype(int).unique().tolist())
+    states = sorted(df['customer_state'].dropna().unique().tolist())
+    methods = sorted(payments['payment_type'].dropna().unique().tolist())
+    year = st.sidebar.selectbox('Select Year', ['All'] + years)
+    state = st.sidebar.selectbox('Select State', ['All'] + states)
+    method = st.sidebar.selectbox('Payment Method', ['All'] + methods)
 
-    # Year Filter
-    years = sorted(
-        df["order_purchase_timestamp"]
-        .dt.year
-        .dropna()
-        .unique()
-    )
-
-    selected_year = st.sidebar.selectbox(
-        "Select Year",
-        ["All"] + list(years)
-    )
-
-    # State Filter
-    states = sorted(
-        df["customer_state"]
-        .dropna()
-        .unique()
-    )
-
-    selected_state = st.sidebar.selectbox(
-        "Select State",
-        ["All"] + list(states)
-    )
-
-    # Payment Filter
-    payments = sorted(
-        df["payment_type"]
-        .dropna()
-        .unique()
-    )
-
-    selected_payment = st.sidebar.selectbox(
-        "Payment Method",
-        ["All"] + list(payments)
-    )
-
-    # APPLY FILTERS
-    filtered_df = df.copy()
-    if selected_year != "All":
-        filtered_df = filtered_df[
-            filtered_df[
-                "order_purchase_timestamp"
-            ].dt.year == selected_year
-        ]
-    if selected_state != "All":
-        filtered_df = filtered_df[
-            filtered_df["customer_state"]
-            == selected_state
-        ]
-    if selected_payment != "All":
-        filtered_df = filtered_df[
-            filtered_df["payment_type"]
-            == selected_payment
-        ]
-
-    # Empty Dataset Protection
-    if filtered_df.empty:
-        st.warning("No data available for the selected filters.")
+    # Use only unique order identifiers for filter membership.
+    orders = df[['order_id', 'customer_unique_id', 'customer_state', 'order_purchase_timestamp']].drop_duplicates('order_id')
+    if year != 'All':
+        orders = orders[orders['order_purchase_timestamp'].dt.year == year]
+    if state != 'All':
+        orders = orders[orders['customer_state'] == state]
+    if method != 'All':
+        method_orders = payments.loc[payments['payment_type'] == method, 'order_id']
+        orders = orders[orders['order_id'].isin(method_orders)]
+    if orders.empty:
+        st.warning('No data available for the selected filters.')
         return
 
-    # ORDER-LEVEL DATA
-    order_level = (
-        filtered_df[
-            [
-                "order_id",
-                "customer_unique_id",
-                "order_purchase_timestamp",
-                "payment_value"
-            ]
-        ]
-        .drop_duplicates(
-            subset=["order_id"]
-        )
-        .copy()
-    )
+    order_ids = set(orders['order_id'])
+    selected_payments = payments[payments['order_id'].isin(order_ids)].copy()
+    if method != 'All':
+        selected_payments = selected_payments[selected_payments['payment_type'] == method]
+    selected_items = items[items['order_id'].isin(order_ids)].copy()
 
-    # KPI CALCULATIONS
-    total_revenue = (
-        order_level["payment_value"]
-        .sum()
-    )
+    revenue = selected_payments['payment_value'].sum()
+    total_orders = orders['order_id'].nunique()
+    customers = orders['customer_unique_id'].nunique()
+    aov = revenue / total_orders if total_orders else 0
 
-    total_orders = (
-        order_level["order_id"]
-        .nunique()
-    )
-
-    total_customers = (
-        order_level["customer_unique_id"]
-        .nunique()
-    )
-
-    average_order_value = (
-        total_revenue / total_orders
-        if total_orders > 0
-        else 0
-    )
-
-    # KPI CARDS
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        metric_card(
-            "💰 Total Revenue",
-            f"R$ {total_revenue:,.2f}"
-        )
-
-    with col2:
-        metric_card(
-            "🛒 Total Orders",
-            f"{total_orders:,}"
-        )
-
-    with col3:
-        metric_card(
-            "👥 Total Customers",
-            f"{total_customers:,}"
-        )
-
-    with col4:
-        metric_card(
-            "📦 Average Order Value",
-            f"R$ {average_order_value:,.2f}"
-        )
+    cols = st.columns(4)
+    for col, label, value in zip(cols,
+        ['💰 Total Revenue', '🛒 Total Orders', '👥 Total Customers', '📦 Average Order Value'],
+        [f'R$ {revenue:,.2f}', f'{total_orders:,}', f'{customers:,}', f'R$ {aov:,.2f}']):
+        with col:
+            metric_card(label, value)
     st.divider()
 
-    # MONTHLY REVENUE
-    revenue = (
-        order_level
-        .groupby(
-            order_level[
-                "order_purchase_timestamp"
-            ].dt.to_period("M")
-        )["payment_value"]
-        .sum()
-        .reset_index()
-    )
-
-    revenue[
-        "order_purchase_timestamp"
-    ] = revenue[
-        "order_purchase_timestamp"
-    ].astype(str)
-
-    revenue_fig = line_chart(
-        revenue,
-        "order_purchase_timestamp",
-        "payment_value",
-        "Monthly Revenue Trend"
-    )
-
-    # MONTHLY ORDERS
-    orders = (
-        order_level
-        .groupby(
-            order_level[
-                "order_purchase_timestamp"
-            ].dt.to_period("M")
-        )["order_id"]
-        .nunique()
-        .reset_index()
-    )
-
-    orders[
-        "order_purchase_timestamp"
-    ] = orders[
-        "order_purchase_timestamp"
-    ].astype(str)
-
-    orders_fig = line_chart(
-        orders,
-        "order_purchase_timestamp",
-        "order_id",
-        "Monthly Orders Trend"
-    )
-
-    # DISPLAY TREND CHARTS
-    col1, col2 = st.columns(2)
-    with col1:
-        st.plotly_chart(
-            revenue_fig,
-            use_container_width=True
-        )
-
-    with col2:
-        st.plotly_chart(
-            orders_fig,
-            use_container_width=True
-        )
-
+    # Aggregate payments once per original payment row, then attach order month.
+    monthly_payments = selected_payments.merge(orders[['order_id', 'order_purchase_timestamp']], on='order_id', how='left', validate='many_to_one')
+    monthly_payments['month'] = monthly_payments['order_purchase_timestamp'].dt.to_period('M').astype(str)
+    monthly_revenue = monthly_payments.groupby('month', as_index=False)['payment_value'].sum()
+    monthly_orders = orders.assign(month=orders['order_purchase_timestamp'].dt.to_period('M').astype(str)).groupby('month', as_index=False)['order_id'].nunique()
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(line_chart(monthly_revenue, 'month', 'payment_value', 'Monthly Revenue Trend'), use_container_width=True)
+    with c2:
+        st.plotly_chart(line_chart(monthly_orders, 'month', 'order_id', 'Monthly Orders Trend'), use_container_width=True)
     st.divider()
 
-    # TOP PRODUCT CATEGORIES
-    category = (
-        filtered_df
-        .dropna(
-            subset=[
-                "product_category_name_english"
-            ]
-        )
-        .groupby(
-            "product_category_name_english"
-        )["price"]
-        .sum()
-        .sort_values(
-            ascending=False
-        )
-        .head(10)
-        .reset_index()
-    )
-
-    category_fig = bar_chart(
-        category,
-        "product_category_name_english",
-        "price",
-        "Top 10 Product Categories"
-    )
-
-    # TOP SELLERS
-    seller = (
-        filtered_df
-        .groupby(
-            "seller_id"
-        )["price"]
-        .sum()
-        .sort_values(
-            ascending=False
-        )
-        .head(10)
-        .reset_index()
-    )
-
-    seller_fig = bar_chart(
-        seller,
-        "seller_id",
-        "price",
-        "Top 10 Sellers by Sales"
-    )
-
-    # DISPLAY CATEGORY & SELLER
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        st.plotly_chart(
-            category_fig,
-            use_container_width=True
-        )
-
-    with col2:
-        st.plotly_chart(
-            seller_fig,
-            use_container_width=True
-        )
+    # Product metadata comes from the joined dataset; actual sales come from raw items.
+    product_categories = df[['product_id', 'product_category_name_english']].dropna(subset=['product_id']).drop_duplicates('product_id')
+    category_items = selected_items.merge(product_categories, on='product_id', how='left', validate='many_to_one')
+    category = (category_items.dropna(subset=['product_category_name_english'])
+        .groupby('product_category_name_english', as_index=False)['price'].sum()
+        .sort_values('price', ascending=False).head(10))
+    seller = (selected_items.groupby('seller_id', as_index=False)['price'].sum()
+        .sort_values('price', ascending=False).head(10))
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(bar_chart(category, 'product_category_name_english', 'price', 'Top 10 Product Categories by Item Sales'), use_container_width=True)
+    with c2:
+        st.plotly_chart(bar_chart(seller, 'seller_id', 'price', 'Top 10 Sellers by Item Sales'), use_container_width=True)
     st.divider()
 
-    # PAYMENT DISTRIBUTION
-    payment = (
-        filtered_df
-        .dropna(
-            subset=["payment_type"]
-        )
-        .groupby(
-            "payment_type"
-        )["payment_value"]
-        .sum()
-        .reset_index()
-    )
-
-    payment_fig = pie_chart(
-        payment,
-        "payment_type",
-        "payment_value",
-        "Payment Method Distribution"
-    )
-
-    # REVIEW DISTRIBUTION
-    review = (
-        filtered_df[
-            "review_score"
-        ]
-        .dropna()
-        .value_counts()
-        .sort_index()
-        .reset_index()
-    )
-
-    review.columns = [
-        "review_score",
-        "count"
-    ]
-
-    review_fig = bar_chart(
-        review,
-        "review_score",
-        "count",
-        "Customer Review Score Distribution"
-    )
-
-    # DISPLAY PAYMENT & REVIEW
-    col1, col2 = st.columns(2)
-    with col1:
-        st.plotly_chart(
-            payment_fig,
-            use_container_width=True
-        )
-
-    with col2:
-        st.plotly_chart(
-            review_fig,
-            use_container_width=True
-        )
-
-    # FOOTNOTE
-    st.caption(
-        "Use the filters in the sidebar to dynamically "
-        "explore business performance."
-    )
+    payment_summary = selected_payments.groupby('payment_type', as_index=False)['payment_value'].sum()
+    # Deduplicate review IDs, not order IDs: an order may legitimately have more than one review.
+    reviews = (df.loc[df['order_id'].isin(order_ids), ['review_id', 'review_score']]
+        .dropna(subset=['review_id']).drop_duplicates('review_id'))
+    review_summary = reviews['review_score'].dropna().value_counts().sort_index().rename_axis('review_score').reset_index(name='count')
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(pie_chart(payment_summary, 'payment_type', 'payment_value', 'Payment Method Distribution'), use_container_width=True)
+    with c2:
+        st.plotly_chart(bar_chart(review_summary, 'review_score', 'count', 'Customer Review Score Distribution'), use_container_width=True)
+    st.caption('Revenue is based on recorded payments, including freight. Category and seller sales use item prices excluding freight. A payment-method filter shows only payments made by that method.')
